@@ -6,6 +6,7 @@ import re
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import train_test_split
 from itertools import chain
+import wes
 import matplotlib.pyplot as plt
 
 
@@ -104,6 +105,7 @@ def make_answer_set(ins, model):
         y_test = model.predict(tf.keras.utils.to_categorical(map_encode(word)))
         outs.append(map_decode(np.argmax(y_test, axis=2).flatten())[0])
     print('|Input|Output|')
+    print('|---|---|')
     for i, o, in zip(ins, outs):
         print(f'|{i}|{o}|')
 
@@ -113,6 +115,8 @@ def make_answer_set(ins, model):
 minput = tf.keras.layers.Input(shape=(in_train.shape[1], in_train.shape[2]), name='main_input')
 f = tf.keras.layers.Flatten()(minput)
 h = tf.keras.layers.Dense(128, activation='relu')(f)
+
+h = tf.keras.layers.Dense(128, activation='relu')(h)
 h = tf.keras.layers.Dense(128, activation='relu')(h)
 
 out_layers = []
@@ -130,9 +134,9 @@ dlayermodel.fit(in_train, better_outs, epochs=100)
 
 minput = tf.keras.layers.Input(shape=(in_train.shape[1], in_train.shape[2]), name='main_input')
 f = tf.keras.layers.Flatten()(minput)
-h = tf.keras.layers.Dense(512, activation='relu')(f)
-h = tf.keras.layers.Dense(512, activation='relu')(h)
-h = tf.keras.layers.Dense(512, activation='relu')(h)
+h = tf.keras.layers.Dense(2048, activation='relu')(f)
+h = tf.keras.layers.Dense(2048, activation='relu')(h)
+h = tf.keras.layers.Dense(2048, activation='relu')(h)
 
 out_layers = []
 for letter in range(in_train.shape[1]):
@@ -140,7 +144,31 @@ for letter in range(in_train.shape[1]):
 
 tlayermodel = tf.keras.models.Model(inputs=[minput], outputs=out_layers)
 
-tlayermodel.compile(loss='categorical_crossentropy', optimizer='adam')
+tlayermodel.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['categorical_accuracy'])
+
+better_outs = [out_train[:, x, :] for x in range(out_train.shape[1])]
+tlayermodel.fit(in_train, better_outs, epochs=100)
+
+#%%
+
+#bigbrain
+
+minput = tf.keras.layers.Input(shape=(in_train.shape[1], in_train.shape[2]), name='main_input')
+f = tf.keras.layers.Flatten()(minput)
+h = tf.keras.layers.Dense(512, activation='relu')(f)
+
+h = tf.keras.layers.Dense(512, activation='relu')(h)
+h = tf.keras.layers.Dense(512, activation='relu')(h)
+
+out_layers = []
+for letter in range(in_train.shape[1]):
+    hout = tf.keras.layers.Dense(128, activation='relu')(h)
+    hout = tf.keras.layers.Dense(128, activation='relu')(hout)
+    out_layers.append(tf.keras.layers.Dense(in_train.shape[2], activation='softmax')(hout))
+
+tlayermodel = tf.keras.models.Model(inputs=[minput], outputs=out_layers)
+
+tlayermodel.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['categorical_accuracy'])
 
 better_outs = [out_train[:, x, :] for x in range(out_train.shape[1])]
 tlayermodel.fit(in_train, better_outs, epochs=100)
@@ -182,14 +210,14 @@ lblprevs = []
 lblouts = []
 
 for o, i in clean:
-    for gram3, nextchar in genngrams(o, 5):
+    for gram3, nextchar in genngrams(o, 7):
         lblins.append(i)
         lblprevs.append(gram3)
         lblouts.append(nextchar)
 
 
 lblins = tf.keras.utils.to_categorical(np.array(map_encode(*lblins)))
-lblprevs = tf.keras.utils.to_categorical(np.array(map_encode(*lblprevs, l=5)))
+lblprevs = tf.keras.utils.to_categorical(np.array(map_encode(*lblprevs, l=7)))
 lblouts = tf.keras.utils.to_categorical(np.array(map_encode(*lblouts, l=1)))
 
 #%%
@@ -223,19 +251,20 @@ def lbl_pluralize(sing, model, printchars=False):
     i = tf.keras.utils.to_categorical(map_encode(sing))
     current = '???'
     nchar = ''
-    last3 = tf.keras.utils.to_categorical(map_encode(current, l=5))
+    last3 = tf.keras.utils.to_categorical(map_encode(current, l=7))
     while nchar != '?':
         ou = model.predict([i, last3])
         nchar = map_decode([np.argmax(ou)], strip_eofs=False)[0]
         current += nchar
         if printchars:
             print(nchar)
-        last3 = tf.keras.utils.to_categorical(map_encode(current[-5:], l=5), num_classes=27)
+        last3 = tf.keras.utils.to_categorical(map_encode(current[-7:], l=7), num_classes=27)
     return current.strip('?')
 
 
 def make_lbl_table(words, model):
     print('|Input|Output|')
+    print('|---|---|')
     for word in words:
         out = lbl_pluralize(word, model)
         print(f'|{word}|{out}|')
@@ -246,70 +275,37 @@ def make_lbl_table(words, model):
 
 minput = tf.keras.layers.Input(shape=(lblins.shape[1], lblins.shape[2]), name='main_input')
 mf = tf.keras.layers.Flatten()(minput)
+mh = tf.keras.layers.Dense(64, activation='relu')(mf)
 
 pinput = tf.keras.layers.Input(shape=(lblprevs.shape[1], lblprevs.shape[2]), name='prev_output')
 pf = tf.keras.layers.Flatten()(pinput)
+ph = tf.keras.layers.Dense(64, activation='relu')(pf)
 
-f = tf.keras.layers.concatenate([pf, mf])
-
-h = tf.keras.layers.Dense(512, activation='relu')(f)
-h = tf.keras.layers.Dense(512, activation='relu')(h)
-
-
-outlayer = tf.keras.layers.Dense(27, activation='softmax')(h)
-
-lblbilayer = tf.keras.models.Model(inputs=[minput, pinput], outputs=[outlayer])
-
-lblbilayer.compile(loss='categorical_crossentropy', optimizer='adam')
-
-lblbilayer.fit([lblins, lblprevs], lblouts, epochs=25)
-
-#%%
-# trilayer
-
-minput = tf.keras.layers.Input(shape=(lblins.shape[1], lblins.shape[2]), name='main_input')
-mf = tf.keras.layers.Flatten()(minput)
-
-pinput = tf.keras.layers.Input(shape=(lblprevs.shape[1], lblprevs.shape[2]), name='prev_output')
-pf = tf.keras.layers.Flatten()(pinput)
-
-f = tf.keras.layers.concatenate([pf, mf])
+f = tf.keras.layers.concatenate([ph, mh])
 
 h = tf.keras.layers.Dense(512, activation='relu')(f)
-h = tf.keras.layers.Dense(512, activation='relu')(h)
-h = tf.keras.layers.Dense(512, activation='relu')(h)
-
-
-outlayer = tf.keras.layers.Dense(27, activation='softmax')(h)
-
-lbltrilayer = tf.keras.models.Model(inputs=[minput, pinput], outputs=[outlayer])
-
-lbltrilayer.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-lbltrilayer.fit([lblins, lblprevs], lblouts, epochs=3, validation_split=.25)
-
-#%%
-
-# bigbrain
-
-minput = tf.keras.layers.Input(shape=(lblins.shape[1], lblins.shape[2]), name='main_input')
-mf = tf.keras.layers.Flatten()(minput)
-
-pinput = tf.keras.layers.Input(shape=(lblprevs.shape[1], lblprevs.shape[2]), name='prev_output')
-pf = tf.keras.layers.Flatten()(pinput)
-
-f = tf.keras.layers.concatenate([pf, mf])
-
-h = tf.keras.layers.Dense(512, activation='relu')(f)
-for _ in range(9):
+for _ in range(10):
     h = tf.keras.layers.Dense(512, activation='relu')(h)
 
 
 outlayer = tf.keras.layers.Dense(27, activation='softmax')(h)
 
-lbltrilayer = tf.keras.models.Model(inputs=[minput, pinput], outputs=[outlayer])
+lblnlayer = tf.keras.models.Model(inputs=[minput, pinput], outputs=[outlayer])
 
-lbltrilayer.compile(loss='mean_absolute_error', optimizer='adam')
+lblnlayer.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['categorical_accuracy'])
 
-lbltrilayer.fit([lblins, lblprevs], lblouts, epochs=5, validation_split=.2)
+lblnlayer.fit([lblins, lblprevs], lblouts, epochs=20, validation_split=.1)
+#%%
 
+def plot_model_info(model):
+    hist = model.history.history
+    palette = wes.set_palette('Darjeeling1')
+    for k in hist.keys():
+        plt.plot(hist[k], label=k)
+        plt.legend()
+    plt.show()
+
+#%%
+
+weird_tests = ['cuddlewug', 'wug', 'buddlesnu', 'bunderkind', 'goofus', 'terminator', 'attaccbird', 'hawk', 'claudio',
+               'stevie', 'knickers', 'bunchesrunch', 'bunchacrunch', 'anqi', 'attorneygeneral']
