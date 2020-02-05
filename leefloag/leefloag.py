@@ -21,7 +21,7 @@ def isplnoun(*line):
     return False
 
 
-raw = pd.read_csv('leefloag/morph_english.flat', sep='\t', lineterminator='\n',
+raw = pd.read_csv('morph_english.flat', sep='\t', lineterminator='\n',
                   names=['pl', 'blk', 'sg', 'pos1', 'pos2', 'pos3', 'pos4'])
 raw = raw.values
 clean = raw[[not x.startswith(';') for x in raw[:, 0]], :]
