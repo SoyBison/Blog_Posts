@@ -208,7 +208,23 @@ class NaiveBayes(Strategy):
         choice = np.argmax(probs)
         return ops[choice]
 
+def make_adversarial_data(df):
+    
+    df_nu = copy(df)
+    df_nu.columns = ['x0', 'x1']
+    df_nu['correct'] = np.zeros(len(df))
 
+    def scramble_row(row):
+
+        correct = np.random.choice([0, 1])
+        outrow = [0, 0, correct]
+        outrow[correct] = row[0]
+        outrow[not correct] = row[1]
+
+        return outrow
+    
+    df_nu = df.apply(scramble_row, axis=1, result_type='expand')
+    return df_nu
 
 def add_to_dataset(filename='avs.csv'):
     dr = start_driver()
