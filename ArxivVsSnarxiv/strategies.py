@@ -3,6 +3,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.ui import WebDriverWait
 from abc import ABC, abstractmethod
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve
 from random import random, choice
 import multiprocessing as mp
 import os
@@ -10,7 +16,13 @@ import csv
 from functools import partial
 from copy import copy
 from tqdm import tqdm
-from selenium.webdriver.firefox.options import Options
+import numpy as np
+import time
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.options import Options
+import pickle
+
+os.makedirs(os.path.dirname('./records/'), exist_ok=True)
 
 
 class element_has_text(object):
@@ -32,24 +44,21 @@ class element_has_text(object):
             return False
 
 
-def start_driver(driver_type='Firefox', headless=True):
+def start_driver(driver_type='Chrome'):
     """
     Starts a webdriver of the type driver_type
 
-    :param bool headless: Minimizes the driver immediately, currently only works for firefox.
+    :param bool headless: Minimizes the driver immediately, currently only works for chrome.
     :param str driver_type: Which browser to use.
     :return: WebDriver
     """
-    options = Options()
-    if headless:
-        options.headless = True
     driver = {
         'Chrome': webdriver.Chrome,
         'Safari': webdriver.Safari,
         'Edge': webdriver.Edge,
         'Firefox': webdriver.Firefox
-    }[driver_type]
-    driver = driver(options=options)
+        }[driver_type]
+    driver = driver()
     driver.get('http://snarxiv.org/vs-arxiv/')
     return driver
 
@@ -104,24 +113,30 @@ class Strategy(ABC):
         else:
             return 1
 
-    def play(self, driver_type: str = 'Firefox', n=1000):
+    def play(self, driver_type: str = 'Chrome', n=1000):
         driver = start_driver(driver_type=driver_type)
         record = []
         count = 0
         while count < n:
-            lhs, rhs = get_options(driver)
-            winner = self.optimize(lhs, rhs)
-            winner.click()
-            response = str(lhs.get_attribute('class'))
-            if response[-5:] == 'right':
-                record.append(True)
-            elif response[-5:] == 'wrong':
-                record.append(False)
-            count += 1
+            try:
+                lhs, rhs = get_options(driver)
+                winner = self.optimize(lhs, rhs)
+                winner.click()
+                response = str(lhs.get_attribute('class'))
+                if response[-5:] == 'right':
+                    record.append(True)
+                elif response[-5:] == 'wrong':
+                    record.append(False)
+                count += 1
+            except TimeoutException:
+                driver.close()
+                driver = start_driver(driver_type=driver_type)
+                print('Driver stopped responding, restarting.')
+
         driver.close()
         return record
 
-    def play_mp(self, driver_type: str = 'Firefox', n=250, threads=4):
+    def play_mp(self, driver_type: str = 'Chrome', n=250, threads=4):
         if mp.cpu_count() < threads:
             print('More threads requested than processors available, are you sure?')
         player = partial(self.play, driver_type=driver_type, n=n)
@@ -174,6 +189,26 @@ class Longest(Strategy):
         else:
             return rhs
 
+class NaiveBayes(Strategy):
+    def __init__(self):
+        super(NaiveBayes, self).__init__()
+        try:
+            with open('nbmodel.pkl', 'rb+') as f:
+                model, threshold = pickle.load(f)
+        except FileNotFoundError:
+            raise(FileNotFoundError('Could Not Create Strategy, no pickled model found.'))
+        
+        self.model = model
+        self.threshold = threshold
+
+
+    def optimize(self, lhs, rhs):
+        ops = (lhs, rhs)
+        probs = self.model.predict_proba(o.text for o in ops)[:, 1]
+        choice = np.argmax(probs)
+        return ops[choice]
+
+
 
 def add_to_dataset(filename='avs.csv'):
     dr = start_driver()
@@ -205,8 +240,10 @@ def make_data(n, fname='avs.csv'):
 
 
 def main():
-    make_data(10000)
-
+    nbstrat = NaiveBayes()
+    record = nbstrat.play_mp(threads=6, n=300)
+    with open('./records/nb-3-01-2020-1.pkl', 'wb+') as f:
+        pickle.dump(record, f)
 
 if __name__ == '__main__':
     main()
