@@ -44,7 +44,7 @@ class element_has_text(object):
             return False
 
 
-def start_driver(driver_type='Chrome'):
+def start_driver(driver_type='Firefox'):
     """
     Starts a webdriver of the type driver_type
 
@@ -193,7 +193,7 @@ class NaiveBayes(Strategy):
     def __init__(self):
         super(NaiveBayes, self).__init__()
         try:
-            with open('nbmodel.pkl', 'rb+') as f:
+            with open('models/nbmodel.pkl', 'rb+') as f:
                 model, threshold = pickle.load(f)
         except FileNotFoundError:
             raise(FileNotFoundError('Could Not Create Strategy, no pickled model found.'))
@@ -208,7 +208,26 @@ class NaiveBayes(Strategy):
         choice = np.argmax(probs)
         return ops[choice]
 
-def make_adversarial_data(df):
+class ContrastiveNaiveBayes(Strategy):
+    def __init__(self):
+        super(ContrastiveNaiveBayes, self).__init__()
+        try:
+            with open('models/nbmodel_contrastive.pkl', 'rb+') as f:
+                model, threshold = pickle.load(f)
+        except FileNotFoundError:
+            raise(FileNotFoundError('Could Not Create Strategy, no pickled model found.'))
+        
+        self.model = model
+        self.threshold = threshold
+
+
+    def optimize(self, lhs, rhs):
+        ops = (lhs, rhs)
+        probs = self.model.predict_proba([[o.text for o in ops]])
+        choice = np.argmax(probs)
+        return ops[choice]
+
+def make_contrastive_data(df):
     
     df_nu = copy(df)
     df_nu.columns = ['x0', 'x1']
@@ -256,10 +275,16 @@ def make_data(n, fname='avs.csv'):
 
 
 def main():
-    nbstrat = NaiveBayes()
-    record = nbstrat.play_mp(threads=6, n=300)
-    with open('./records/nb-3-01-2020-1.pkl', 'wb+') as f:
+    nbstrat = ContrastiveNaiveBayes()
+    record = nbstrat.play_mp(threads=3, n=333)
+    with open('./records/cnb-3-30-2020.pkl', 'wb+') as f:
         pickle.dump(record, f)
+
+    nbstrat = NaiveBayes()
+    record = nbstrat.play_mp(threads=3, n=333)
+    with open('./records/nb-3-30-2020.pkl', 'wb+') as f:
+        pickle.dump(record, f)
+    
 
 if __name__ == '__main__':
     main()
